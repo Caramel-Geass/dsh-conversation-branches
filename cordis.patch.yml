@@ -1,7 +1,4 @@
-# conversation-branches — 对话分支插件(bundle patch)。
-# 作为 profile 的 bundle 层被加载时,将插件行插入 profile 树:
-# 在主对话中选中文本 → 弹出提问框 → 右侧 details 列出现 IM 风格问答分支(流式)。
-# 数据以 fork/branch 事件写入会话日志,随会话持久化。
+# 对话分支：Host 侧服务（conversationBranches）+ Client 模块（dsh.client 声明）。
 - insert:
     - id: conversation-branches
-      name: '@deepseek-ai/dsh-conversation-branches'
+      name: '@caramel-geass/dsh-conversation-branches'

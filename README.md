@@ -1,86 +1,73 @@
-# @deepseek-ai/dsh-conversation-branches
+# conversation-branches
 
-对话分支(conversation branches)插件:在主对话中**选中一段文本**,即可在右侧详情列开启 IM 风格的独立问答分支。分支问答由流式模型生成、随会话持久化,支持追问、折叠、定位高亮与删除。
+> Read with questions: select any text in the main conversation and ask follow-ups in a side panel without interrupting it.
 
-这是一个 **dsh bundle** 插件:包内声明了 `dsh.bundle`,`dsh plugin add` 后会自动成为 profile 的 composition 层,无需手写挂载配置。
+This directory is the **DeepSeek Harness 0.2.x (currently 0.2.1-rc.3) build** of the plugin. It is a self-contained two-face bundle:
+`lib/index.js` (Host: branch storage + model Q&A) and `lib/client.js` (Client: selection popup, right dock panel, IM bubbles, streaming).
 
-## 功能特性
+## Features
 
-- **选区提问** — 选中主对话文本即弹出提问框,针对选中片段发起独立问答,不打断主对话
-- **IM 气泡对话** — 分支以聊天气泡呈现,流式输出,支持同一分支内多轮追问
-- **随会话持久化** — 分支以 `fork/branch` 事件写入会话自身的事件日志,与主对话同一持久化管线;重新加载会话时按事件顺序重放
-- **定位高亮** — 点击分支卡片中的"选中片段"定位回主对话并短暂高亮
-- **折叠 / 删除** — 分支卡片可折叠为一行,可删除
+- **Select-to-ask** — select text in the main conversation → a floating input appears next to the selection → ask (Enter to send, Shift+Enter for a newline).
+- **Right dock panel** — branches live in a panel docked to the window's right edge; drag its left edge to resize (300–560 px); the width is remembered.
+- **IM-style bubbles** — your messages on the right (brand color), model replies on the left; replies stream in and render Markdown.
+- **Follow-ups** — ask unlimited follow-ups inside a branch; each answer is grounded in the main conversation, the selection, and the branch's own Q&A history.
+- **Jump back** — click a quoted selection and the main conversation scrolls back with a soft yellow highlight of the selected text.
+- **Collapse** — collapse a branch to show only the selection + your first question; the state persists.
+- **Durable by design** — branches are stored in the Harness storage domain (JSON backend under `$DSH_HOME/storages`), so they survive restarts.
 
-## 安装
+## 0.2.x adaptation (versus the original build)
 
-作为 bundle 加入 profile:
+| Original (0.1 / 0.2.0) | This build (0.2.1-rc.3) |
+| --- | --- |
+| Branches appended to the session log as `fork/branch` events | Moved to `ctx.storageDomain`, the supported home for plugin data; the session log stays clean |
+| Panel registered into the `details` slot + `ctx.layout.openDetails()` | 0.2.x no longer has a `details` slot: the panel is a self-drawn right dock inside `shell.overlay` |
+| Remote descriptors carried `codec.schema` | 0.2.x validation requires a `codec.create()` factory |
+| Peer requirement `^0.1.0-rc.6` | `engines.dsh >= 0.2.1-rc.3`; otherwise 0.2.1 refuses to mount the plugin as incompatible |
 
-```sh
-dsh plugin --profile <name> add @deepseek-ai/dsh-conversation-branches
+Old data is preserved: the first time a session is read and storage holds no branch for it, the Host replays that session's legacy `fork/branch` events read-only and imports them.
+
+## Install (current Desktop app)
+
+Requires DeepSeek Harness **≥ 0.2.1-rc.3**; older runtimes (0.2.0, 0.1) skip the plugin as incompatible.
+
+```bash
+./scripts/install.sh            # default profile: desktop; pass another profile name if needed
+./scripts/uninstall.sh          # to remove
 ```
 
-harness 会检测到该依赖声明了 `dsh.bundle`,自动把它追加进 profile 的 bundle 层。
+The script copies this directory into `~/.dsh/profiles/<profile>/node_modules/@caramel-geass/dsh-conversation-branches/`
+and adds the package to that profile's `dependencies` and `dsh.profile.bundles`.
 
-也可以手动加入 profile 的依赖与 bundle 层:
+**Restart the app (⌘Q, then reopen) to load it.**
 
-```json
-// <profile>/package.json
-{
-  "dependencies": {
-    "@deepseek-ai/dsh-conversation-branches": "^0.1.0-rc.6"
-  },
-  "dsh": {
-    "profile": {
-      "bundles": [
-        "@deepseek-ai/dsh-base",
-        "@deepseek-ai/dsh-web-app",
-        "@deepseek-ai/dsh-conversation-branches"
-      ]
-    }
-  }
-}
-```
+> Install as a real directory, not a symlink: the Host's bare imports (`zod`, `@deepseek-ai/*`) resolve relative to the package's location inside the profile.
 
-## 使用
-
-1. 在主对话正文中选中一段文本
-2. 弹出提问框,输入问题后回车(或点击"提问")
-3. 右侧详情列出现分支面板,开始流式回答
-4. 可继续"追问";点击"选中片段"定位回主对话;折叠或删除分支
-
-## 工作原理
-
-- **Host 端**(`lib/index.js`):`ConversationBranchesService`,暴露 `load / save / ask / askPoll` 四个 Remote 方法。`ask` 以主对话上下文 + 选中片段 + 分支历史构造提示词,后台消费 `llm.stream` 增量,`askPoll` 轮询取回;分支数据经 `save` 作为 `fork/branch` log-only 事件写入会话日志。
-- **Client 端**(`lib/client.js`):注册到三个 slot:
-
-  | Slot | 用途 |
-  | --- | --- |
-  | `conversation.session.header.utilities` | 分支面板开关按钮 |
-  | `details` | 分支面板(优先级 -1,替换默认详情列) |
-  | `shell.overlay` | 选区提问弹窗与文本高亮层 |
-
-> **命名空间解析说明**:插件自挂载 `conversationBranches` Remote 命名空间。挂载者与本插件是**兄弟 fiber**,`ctx.remote.conversationBranches` 的 fiber-store 链解析不到它(自注入会死锁),因此统一通过 `ctx.get('remote.conversationBranches')` 走共享 reflect store 解析。
-
-## 开发
+## Layout
 
 ```
 conversation-branches/
+├── package.json        # bundle patch + dsh.client manifest
+├── cordis.patch.yml    # inserts the Host row
 ├── lib/
-│   ├── index.js            # Host 服务(构建产物)
-│   ├── client.js           # Client 插件(构建产物)
-│   └── types/              # 类型声明(.d.ts)
-├── src/
-│   ├── index.ts            # Host 服务源码
-│   └── client.tsx          # Client 源码
-├── cordis.patch.yml        # bundle patch(自插插件行)
-├── package.json
-├── README.md
-└── LICENSE
+│   ├── index.js        # Host: ConversationBranchesService (load/save/ask/askPoll)
+│   └── client.js       # Client: selection popup + right dock panel (__ModuleLoader__ artifact)
+├── locale/{zh,en}.json # title/description shown in the plugin manager
+├── icon.svg
+├── scripts/{install,uninstall}.sh
+└── src/                # TypeScript source from the 0.1 era, kept for history only; not built
 ```
 
-运行依赖:`@deepseek-ai/dsh-session`、`@deepseek-ai/dsh-typert-protocol`;peer 依赖:`react`、`@deepseek-ai/dsh-client-connection`。
+> `lib/` is the **hand-maintained release artifact**, not output from `src/`. Edit `lib/` directly and run an install check.
+```
+
+## How it works
+
+- **Host** (`lib/index.js`): a `TypertRemoteService` exposing `load` / `save` / `ask` / `askPoll`.
+  `ask` reads the main conversation's current model surface via `sessionQuery.readSurface`, assembles a focused prompt,
+  and streams an answer with the default model from `agentDefaultModel.currentSelection()` through `llm.stream`.
+- **Client** (`lib/client.js`): watches selections inside `[data-conversation-scroll]` and shows the popup;
+  the panel is docked on the right by `shell.overlay`; it polls `askPoll` every 200 ms for streamed increments.
 
 ## License
 
-[MIT](./LICENSE)
+MIT

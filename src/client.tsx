@@ -5,17 +5,9 @@ import React from 'react'
  * 功能与动态版 pkg-24 一致：选区提问浮窗、IM 气泡多轮对话（流式）、分屏面板、
  * 点击片段定位高亮、折叠持久化。Host 调用走 `ctx.remote.conversationBranches`。
  */
-export const inject = ['slots', 'remote', 'typert', 'layout']
+export const inject = ['slots', 'remote', 'remote.conversationBranches', 'layout', 'timer']
 
 export function apply(ctx: any) {
-  // conversationBranches 命名空间由插件（或 harness 生成物）挂载；挂载者与本插件是兄弟 fiber，
-  // 无法通过 ctx.remote.conversationBranches 的 fiber-store 链解析（自注入会死锁）。
-  // 改用 ctx.get() 走共享 reflect store 解析。
-  const branchesNs = () => {
-    const ns = ctx.get('remote.conversationBranches')
-    if (!ns) throw new Error('conversationBranches 命名空间尚未就绪')
-    return ns
-  }
   // ---------- 模块级 store（本次运行内跨渲染共享） ----------
   const listeners = new Set<() => void>()
   const store = {
@@ -38,14 +30,12 @@ export function apply(ctx: any) {
   }
   const openPanel = () => {
     store.panelOpen = true
-    const layout = ctx.get('layout')
-    if (layout) layout.openDetails()
+    if (ctx.layout) ctx.layout.openDetails()
     notify()
   }
   const closePanel = () => {
     store.panelOpen = false
-    const layout = ctx.get('layout')
-    if (layout) layout.closeDetails()
+    if (ctx.layout) ctx.layout.closeDetails()
     notify()
   }
 
@@ -65,7 +55,7 @@ export function apply(ctx: any) {
     if (!sessionId || loadedSessions.has(sessionId)) return false
     let loadedAny = false
     try {
-      const res = await branchesNs().load({ sessionId })
+      const res = await ctx.remote.conversationBranches.load({ sessionId })
       if (res && res.ok && Array.isArray(res.branches)) {
         loadedSessions.add(sessionId)
         const list = res.branches
@@ -105,7 +95,7 @@ export function apply(ctx: any) {
     if (!sessionId) return
     const prev = saveChains[sessionId] || Promise.resolve()
     saveChains[sessionId] = prev.then(() =>
-      branchesNs().save({ sessionId, ops: [{ op: 'upsert', branch: branchToJson(branch) }] }).catch(() => null)
+      ctx.remote.conversationBranches.save({ sessionId, ops: [{ op: 'upsert', branch: branchToJson(branch) }] }).catch(() => null)
     )
   }
 
@@ -114,7 +104,7 @@ export function apply(ctx: any) {
     if (!sessionId) return
     const prev = saveChains[sessionId] || Promise.resolve()
     saveChains[sessionId] = prev.then(() =>
-      branchesNs().save({ sessionId, ops: [{ op: 'delete', id: branch.id }] }).catch(() => null)
+      ctx.remote.conversationBranches.save({ sessionId, ops: [{ op: 'delete', id: branch.id }] }).catch(() => null)
     )
   }
 
@@ -125,12 +115,12 @@ export function apply(ctx: any) {
   }
 
   const streamTurn = async (branch: any, turn: any, sessionId: string, selection: string, question: string, history: any) => {
-    const timer = ctx.get('timer')
+    const timer = ctx.timer
     let requestId: string | null = null
     try {
       const args: any = { sessionId, selection, question }
       if (history !== undefined && history !== null) args.history = history
-      const res = await branchesNs().ask(args)
+      const res = await ctx.remote.conversationBranches.ask(args)
       if (!res || !res.ok) {
         turn.status = 'error'
         turn.error = (res && res.error) || '请求失败'
@@ -148,7 +138,7 @@ export function apply(ctx: any) {
     }
     const tick = () => {
       if (turn.status !== 'thinking') return
-      branchesNs().askPoll({ requestId }).then((res: any) => {
+      ctx.remote.conversationBranches.askPoll({ requestId }).then((res: any) => {
         if (res && res.ok) {
           if (res.answer && res.answer !== turn.answer) {
             turn.answer = res.answer
@@ -389,7 +379,7 @@ export function apply(ctx: any) {
       }
       if (!target) return
       const el = target.closest('[data-conversation-scroll]') || scrollport
-      const timer = ctx.get('timer')
+      const timer = ctx.timer
       const place = () => {
         const rowRect = target.getBoundingClientRect()
         const elRect = el.getBoundingClientRect()
@@ -855,7 +845,7 @@ export function apply(ctx: any) {
     (props: any) => React.createElement(Toggle, { sessionId: props.sessionId }),
   ))
   slots.inject('details', () => slots.register(
-    { name: 'details', priority: -1 },
+    { name: 'details' },
     (props: any) => React.createElement(BranchPanel, { sessionId: props.sessionId }),
   ))
   slots.inject('shell.overlay', () => slots.register(

@@ -1,3 +1,7 @@
 node_modules/
+dist/
+*.tsbuildinfo
 *.log
 .DS_Store
+
+# lib/ 是手写维护的发布产物（main 与 ./client 都指向它），必须提交，不能忽略。

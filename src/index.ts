@@ -1,11 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
-import { KNOWN_SESSION_EVENT_TYPES } from '@deepseek-ai/dsh-session'
-
-// fork/branch 是本插件自有的日志事件类型，不在 harness 的已知事件列表里；读取器会拒绝
-// 含未知且未标记 ignorable 类型的日志。此处与 persistence 共享同一 dsh-session 模块实例，
-// 模块加载时注册一次，存量与未来的会话日志均可被正常解读。
-KNOWN_SESSION_EVENT_TYPES.add('fork/branch')
 
 export interface ForkBranchTurn {
   id: string
